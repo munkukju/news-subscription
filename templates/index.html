@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>뉴스 구독 서비스</title>
+  <!-- 공통 스타일 불러오기 -->
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+  <!-- =============================================
+    메인 화면 컨테이너
+  ============================================= -->
+  <div class="container center">
+
+    <!-- 서비스 제목 -->
+    <h1 class="logo">📰 뉴스 구독</h1>
+    <p class="subtitle">내가 선택한 카테고리의 뉴스만 모아보세요</p>
+
+    <!-- 카테고리 미리보기 뱃지 -->
+    <div class="badge-group">
+      <span class="badge">기술</span>
+      <span class="badge">경제</span>
+      <span class="badge">스포츠</span>
+      <span class="badge">환경</span>
+      <span class="badge">정치</span>
+      <span class="badge">문화</span>
+    </div>
+
+    <!-- 버튼 영역 -->
+    <div class="btn-group">
+      <!-- 로그인 버튼 클릭 → /login 페이지로 이동 -->
+      <button onclick="location.href='/login'" class="btn btn-primary">로그인</button>
+
+      <!-- 회원가입 버튼 클릭 → /register 페이지로 이동 -->
+      <button onclick="location.href='/register'" class="btn btn-outline">회원가입</button>
+    </div>
+
+  </div>
+
+</body>
+</html>

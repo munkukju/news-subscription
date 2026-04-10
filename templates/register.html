@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>회원가입</title>
+  <!-- 공통 스타일 불러오기 -->
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+  <!-- =============================================
+    회원가입 컨테이너
+  ============================================= -->
+  <div class="container">
+
+    <h2 class="page-title">회원가입</h2>
+
+    <!-- 입력 폼 영역 -->
+    <div class="form-group">
+      <label>이름</label>
+      <input type="text" id="name" placeholder="이름을 입력하세요">
+    </div>
+
+    <div class="form-group">
+      <label>이메일</label>
+      <input type="email" id="email" placeholder="이메일을 입력하세요">
+    </div>
+
+    <div class="form-group">
+      <label>비밀번호</label>
+      <input type="password" id="password" placeholder="비밀번호를 입력하세요">
+    </div>
+
+    <!-- =============================================
+      카테고리 선택 (체크박스)
+      value 값이 DB에 저장되는 category 값
+    ============================================= -->
+    <div class="form-group">
+      <label>관심 카테고리 선택</label>
+      <div class="checkbox-group">
+        <label><input type="checkbox" value="기술"> 기술</label>
+        <label><input type="checkbox" value="경제"> 경제</label>
+        <label><input type="checkbox" value="스포츠"> 스포츠</label>
+        <label><input type="checkbox" value="환경"> 환경</label>
+        <label><input type="checkbox" value="정치"> 정치</label>
+        <label><input type="checkbox" value="문화"> 문화</label>
+      </div>
+    </div>
+
+    <!-- 가입 버튼 -->
+    <button onclick="register()" class="btn btn-primary full">가입하기</button>
+
+    <!-- 로그인 페이지로 이동 -->
+    <p class="link-text">이미 계정이 있으신가요? <a href="/login">로그인</a></p>
+
+  </div>
+
+
+  <!-- =============================================
+    회원가입 JavaScript
+  ============================================= -->
+  <script>
+    function register() {
+
+      // 입력값 가져오기
+      const name     = document.getElementById('name').value;
+      const email    = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+
+      // 체크된 카테고리만 골라서 배열로 만들기
+      const checkboxes = document.querySelectorAll('.checkbox-group input:checked');
+      const categories = Array.from(checkboxes).map(cb => cb.value);
+      // ex) ['기술', '경제']
+
+      // 빈 값 체크
+      if (!name || !email || !password) {
+        alert('모든 항목을 입력해주세요');
+        return;
+      }
+      if (categories.length === 0) {
+        alert('카테고리를 1개 이상 선택해주세요');
+        return;
+      }
+
+      // =============================================
+      // POST /api/posts 로 회원가입 데이터 전송
+      // =============================================
+      fetch('/api/posts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, password, categories })
+        // JSON 형태로 묶어서 서버에 전달
+      })
+      .then(res => res.json())
+      .then(data => {
+        alert(data.message); // "회원가입 성공"
+        location.href = '/login'; // 로그인 페이지로 이동
+      })
+      .catch(err => {
+        alert('오류가 발생했습니다');
+        console.error(err);
+      });
+    }
+  </script>
+
+</body>
+</html>
