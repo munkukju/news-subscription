@@ -5,10 +5,12 @@ const express = require('express');
 const mysql   = require('mysql2');
 const path    = require('path');
 const jwt     = require('jsonwebtoken'); // JWT 추가
+const bcrypt  = require('bcrypt');        // 비밀번호 암호화
 
-const app        = express();
-const PORT       = 3000;
-const JWT_SECRET = 'news-secret-key'; // 토큰 암호화에 사용하는 비밀키
+const app         = express();
+const PORT        = 3000;
+const JWT_SECRET  = 'news-secret-key'; // 토큰 암호화에 사용하는 비밀키
+const SALT_ROUNDS = 10;                // bcrypt 암호화 강도 (숫자가 클수록 더 안전하지만 느려짐)
 
 
 // =============================================
@@ -129,25 +131,33 @@ app.get('/api/posts', verifyToken, (req, res) => {
 app.post('/api/posts', (req, res) => {
   const { name, email, password, categories } = req.body;
 
-  // 1단계: users 테이블에 사용자 저장
-  const userSql = `INSERT INTO users (name, email, password) VALUES (?, ?, ?)`;
-
-  db.query(userSql, [name, email, password], (err, result) => {
+  // 1단계: 비밀번호를 bcrypt로 암호화
+  // → 같은 비밀번호라도 매번 다른 암호화 결과가 나오기 때문에 안전하다
+  bcrypt.hash(password, SALT_ROUNDS, (err, hashedPassword) => {
     if (err) {
-      return res.status(500).json({ message: '회원가입 실패' });
+      return res.status(500).json({ message: '비밀번호 암호화 실패' });
     }
 
-    const userId = result.insertId;
+    // 2단계: users 테이블에 사용자 저장 (암호화된 비밀번호를 저장)
+    const userSql = `INSERT INTO users (name, email, password) VALUES (?, ?, ?)`;
 
-    // 2단계: user_categories 테이블에 카테고리 저장
-    const categorySql  = `INSERT INTO user_categories (user_id, category) VALUES ?`;
-    const categoryData = categories.map(cat => [userId, cat]);
-
-    db.query(categorySql, [categoryData], (err) => {
+    db.query(userSql, [name, email, hashedPassword], (err, result) => {
       if (err) {
-        return res.status(500).json({ message: '카테고리 저장 실패' });
+        return res.status(500).json({ message: '회원가입 실패' });
       }
-      res.json({ message: '회원가입 성공' });
+
+      const userId = result.insertId;
+
+      // 3단계: user_categories 테이블에 카테고리 저장
+      const categorySql  = `INSERT INTO user_categories (user_id, category) VALUES ?`;
+      const categoryData = categories.map(cat => [userId, cat]);
+
+      db.query(categorySql, [categoryData], (err) => {
+        if (err) {
+          return res.status(500).json({ message: '카테고리 저장 실패' });
+        }
+        res.json({ message: '회원가입 성공' });
+      });
     });
   });
 });
@@ -160,9 +170,12 @@ app.post('/api/posts', (req, res) => {
 app.post('/api/login', (req, res) => {
   const { email, password } = req.body;
 
-  const sql = `SELECT id, name FROM users WHERE email = ? AND password = ?`;
+  // 1단계: 이메일로 사용자 찾기
+  // → 비밀번호는 암호화되어 있어서 SQL에서 바로 비교할 수 없다
+  //    그래서 일단 이메일로만 찾고, 비밀번호는 다음 단계에서 bcrypt로 비교
+  const sql = `SELECT id, name, password FROM users WHERE email = ?`;
 
-  db.query(sql, [email, password], (err, results) => {
+  db.query(sql, [email], (err, results) => {
     if (err) {
       return res.status(500).json({ message: 'DB 오류' });
     }
@@ -172,15 +185,26 @@ app.post('/api/login', (req, res) => {
 
     const user = results[0];
 
-    // 로그인 성공 → JWT 토큰 발급
-    // user_id를 토큰 안에 암호화해서 저장
-    const token = jwt.sign(
-      { user_id: user.id },  // 토큰 안에 담을 데이터
-      JWT_SECRET,             // 암호화 비밀키
-      { expiresIn: '1h' }    // 토큰 유효시간 1시간
-    );
+    // 2단계: 입력한 비밀번호와 DB에 저장된 암호화 비밀번호를 bcrypt로 비교
+    // → 내부적으로 같은 방식으로 암호화한 뒤 비교해준다
+    bcrypt.compare(password, user.password, (err, isMatch) => {
+      if (err) {
+        return res.status(500).json({ message: '비밀번호 비교 실패' });
+      }
+      if (!isMatch) {
+        return res.status(401).json({ message: '이메일 또는 비밀번호가 틀렸습니다' });
+      }
 
-    res.json({ message: '로그인 성공', token: token, name: user.name });
+      // 3단계: 로그인 성공 → JWT 토큰 발급
+      // user_id를 토큰 안에 암호화해서 저장
+      const token = jwt.sign(
+        { user_id: user.id },  // 토큰 안에 담을 데이터
+        JWT_SECRET,             // 암호화 비밀키
+        { expiresIn: '1h' }    // 토큰 유효시간 1시간
+      );
+
+      res.json({ message: '로그인 성공', token: token, name: user.name });
+    });
   });
 });
 
