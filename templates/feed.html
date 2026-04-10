@@ -43,12 +43,12 @@
     // =============================================
     window.onload = function () {
 
-      // localStorage에서 로그인 정보 꺼내기
-      const userId = localStorage.getItem('user_id');
-      const name   = localStorage.getItem('name');
+      // localStorage에서 토큰과 이름 꺼내기
+      const token = localStorage.getItem('token');
+      const name  = localStorage.getItem('name');
 
-      // 로그인 안 된 상태면 로그인 페이지로 강제 이동
-      if (!userId) {
+      // 토큰이 없으면 아직 로그인 안 한 상태 → 로그인 페이지로 이동
+      if (!token) {
         alert('로그인이 필요합니다');
         location.href = '/login';
         return;
@@ -57,20 +57,41 @@
       // 사용자 이름 헤더에 표시
       document.getElementById('username').textContent = name + '님';
 
-      // 뉴스 불러오기 함수 실행
-      loadNews(userId);
+      // 뉴스 불러오기 함수 실행 (토큰을 넘겨줌)
+      loadNews(token);
     }
 
 
     // =============================================
-    // GET /api/posts?user_id=1
+    // GET /api/posts
     // 구독 카테고리 뉴스 불러오기
+    // → 토큰을 헤더에 담아 보내면
+    //    서버가 토큰을 열어보고 "누구의 뉴스를 줄지" 판단함
     // =============================================
-    function loadNews(userId) {
+    function loadNews(token) {
 
-      fetch(`/api/posts?user_id=${userId}`)
-        .then(res => res.json())
+      fetch('/api/posts', {
+        headers: {
+          'Authorization': token  // 토큰을 Authorization 헤더에 담아 전송
+        }
+      })
+        .then(res => {
+
+          // 토큰이 없거나 만료되면 서버가 401을 돌려준다
+          if (res.status === 401) {
+            alert('로그인이 만료되었습니다. 다시 로그인해주세요.');
+            localStorage.removeItem('token');
+            localStorage.removeItem('name');
+            location.href = '/login';
+            return null; // 아래 then이 건너뛰도록 null 반환
+          }
+
+          return res.json();
+        })
         .then(posts => {
+
+          // 401 처리에서 null을 반환한 경우는 여기서 종료
+          if (!posts) return;
 
           const newsList = document.getElementById('news-list');
 
@@ -105,10 +126,10 @@
 
     // =============================================
     // 로그아웃
-    // localStorage 비우고 메인으로 이동
+    // 저장해둔 토큰과 이름을 지우고 메인으로 이동
     // =============================================
     function logout() {
-      localStorage.removeItem('user_id');
+      localStorage.removeItem('token');
       localStorage.removeItem('name');
       location.href = '/';
     }

@@ -4,9 +4,11 @@
 const express = require('express');
 const mysql   = require('mysql2');
 const path    = require('path');
+const jwt     = require('jsonwebtoken'); // JWT 추가
 
-const app  = express();
-const PORT = 3000;
+const app        = express();
+const PORT       = 3000;
+const JWT_SECRET = 'news-secret-key'; // 토큰 암호화에 사용하는 비밀키
 
 
 // =============================================
@@ -65,17 +67,43 @@ app.get('/feed', (req, res) => {
 
 
 // =============================================
+// JWT 토큰 검증 미들웨어
+// → /api/posts 요청 전에 토큰이 유효한지 확인
+// =============================================
+function verifyToken(req, res, next) {
+
+  // 요청 헤더에서 토큰 꺼내기
+  const token = req.headers['authorization'];
+
+  // 토큰이 없으면 접근 거부
+  if (!token) {
+    return res.status(401).json({ message: '토큰이 없습니다. 로그인이 필요합니다.' });
+  }
+
+  // 토큰 검증
+  jwt.verify(token, JWT_SECRET, (err, decoded) => {
+    if (err) {
+      return res.status(401).json({ message: '유효하지 않은 토큰입니다.' });
+    }
+    // 검증 성공 → 토큰 안의 user_id를 req에 저장
+    req.user_id = decoded.user_id;
+    next(); // 다음 단계로 진행
+  });
+}
+
+
+// =============================================
 // API 라우팅
 // =============================================
 
 // ---------------------------------------------
-// GET /api/posts?user_id=1
-// 해당 사용자가 구독한 카테고리의 뉴스만 조회
+// GET /api/posts
+// 토큰 검증 후 구독 카테고리 뉴스 조회
 // ---------------------------------------------
-app.get('/api/posts', (req, res) => {
-  const { user_id } = req.query; // URL 쿼리스트링에서 user_id 꺼내기
+app.get('/api/posts', verifyToken, (req, res) => {
+  // verifyToken에서 저장한 user_id 사용
+  const user_id = req.user_id;
 
-  // 사용자의 구독 카테고리에 해당하는 뉴스만 필터링
   const sql = `
     SELECT p.*
     FROM posts p
@@ -89,7 +117,7 @@ app.get('/api/posts', (req, res) => {
     if (err) {
       return res.status(500).json({ message: 'DB 조회 실패' });
     }
-    res.json(results); // 조회된 뉴스 목록 반환
+    res.json(results);
   });
 });
 
@@ -100,7 +128,6 @@ app.get('/api/posts', (req, res) => {
 // ---------------------------------------------
 app.post('/api/posts', (req, res) => {
   const { name, email, password, categories } = req.body;
-  // categories는 배열로 넘어옴 ex) ['기술', '경제']
 
   // 1단계: users 테이블에 사용자 저장
   const userSql = `INSERT INTO users (name, email, password) VALUES (?, ?, ?)`;
@@ -110,19 +137,50 @@ app.post('/api/posts', (req, res) => {
       return res.status(500).json({ message: '회원가입 실패' });
     }
 
-    const userId = result.insertId; // 방금 저장된 사용자의 id
+    const userId = result.insertId;
 
     // 2단계: user_categories 테이블에 카테고리 저장
-    // 선택한 카테고리 수만큼 INSERT
-    const categorySql = `INSERT INTO user_categories (user_id, category) VALUES ?`;
+    const categorySql  = `INSERT INTO user_categories (user_id, category) VALUES ?`;
     const categoryData = categories.map(cat => [userId, cat]);
 
     db.query(categorySql, [categoryData], (err) => {
       if (err) {
         return res.status(500).json({ message: '카테고리 저장 실패' });
       }
-      res.json({ message: '회원가입 성공', user_id: userId });
+      res.json({ message: '회원가입 성공' });
     });
+  });
+});
+
+
+// ---------------------------------------------
+// POST /api/login
+// 로그인 처리 → JWT 토큰 발급
+// ---------------------------------------------
+app.post('/api/login', (req, res) => {
+  const { email, password } = req.body;
+
+  const sql = `SELECT id, name FROM users WHERE email = ? AND password = ?`;
+
+  db.query(sql, [email, password], (err, results) => {
+    if (err) {
+      return res.status(500).json({ message: 'DB 오류' });
+    }
+    if (results.length === 0) {
+      return res.status(401).json({ message: '이메일 또는 비밀번호가 틀렸습니다' });
+    }
+
+    const user = results[0];
+
+    // 로그인 성공 → JWT 토큰 발급
+    // user_id를 토큰 안에 암호화해서 저장
+    const token = jwt.sign(
+      { user_id: user.id },  // 토큰 안에 담을 데이터
+      JWT_SECRET,             // 암호화 비밀키
+      { expiresIn: '1h' }    // 토큰 유효시간 1시간
+    );
+
+    res.json({ message: '로그인 성공', token: token, name: user.name });
   });
 });
 
@@ -131,8 +189,9 @@ app.post('/api/posts', (req, res) => {
 // PUT /api/update
 // 카테고리 수정: 기존 카테고리 삭제 후 새로 저장
 // ---------------------------------------------
-app.put('/api/update', (req, res) => {
-  const { user_id, categories } = req.body;
+app.put('/api/update', verifyToken, (req, res) => {
+  const user_id        = req.user_id;
+  const { categories } = req.body;
 
   // 1단계: 기존 카테고리 전부 삭제
   const deleteSql = `DELETE FROM user_categories WHERE user_id = ?`;
@@ -143,7 +202,7 @@ app.put('/api/update', (req, res) => {
     }
 
     // 2단계: 새 카테고리 다시 저장
-    const insertSql  = `INSERT INTO user_categories (user_id, category) VALUES ?`;
+    const insertSql    = `INSERT INTO user_categories (user_id, category) VALUES ?`;
     const categoryData = categories.map(cat => [user_id, cat]);
 
     db.query(insertSql, [categoryData], (err) => {
@@ -160,8 +219,8 @@ app.put('/api/update', (req, res) => {
 // DELETE /api/update
 // 회원 탈퇴: 사용자 삭제 (카테고리는 CASCADE로 자동 삭제)
 // ---------------------------------------------
-app.delete('/api/update', (req, res) => {
-  const { user_id } = req.body;
+app.delete('/api/update', verifyToken, (req, res) => {
+  const user_id = req.user_id; // 토큰에서 가져온 user_id
 
   const sql = `DELETE FROM users WHERE id = ?`;
 
@@ -170,28 +229,6 @@ app.delete('/api/update', (req, res) => {
       return res.status(500).json({ message: '삭제 실패' });
     }
     res.json({ message: '탈퇴 완료' });
-  });
-});
-
-
-// ---------------------------------------------
-// 로그인 처리
-// email + password 확인 후 user_id 반환
-// ---------------------------------------------
-app.post('/api/login', (req, res) => {
-  const { email, password } = req.body;
-
-  const sql = `SELECT id, name FROM users WHERE email = ? AND password = ?`;
-
-  db.query(sql, [email, password], (err, results) => {
-    if (err) {
-      return res.status(500).json({ message: 'DB 오류' });
-    }
-    if (results.length === 0) {
-      return res.status(401).json({ message: '이메일 또는 비밀번호가 틀렸습니다' });
-    }
-    // 로그인 성공 → user_id와 name 반환 (프론트에서 localStorage에 저장)
-    res.json({ message: '로그인 성공', user_id: results[0].id, name: results[0].name });
   });
 });
 
